@@ -17,7 +17,7 @@ def load_ref_traj():
 
     for i in range(sim_steps):
         ref_traj[i, 0] = 10 * i * dt
-        ref_traj[i, 1] = 5.0
+        ref_traj[i, 1] = 50.0
         ref_traj[i, 2] = 0.0
         ref_traj[i, 3] = v_d
         ref_traj[i, 4] = 0.0
@@ -25,13 +25,8 @@ def load_ref_traj():
     return ref_traj
 
 class UGV_model:
-    def __init__(self, ey0, ey_rate0, ephi0, ephi_rate0, ex0, ev0, x0, y0, theta0, L, T): # L:wheel base
-        self.ey = ey0 
-        self.ey_rate = ey_rate0
-        self.ephi = ephi0
-        self.ephi_rate = ephi_rate0
-        self.ex = ex0
-        self.ev = ev0
+    def __init__(self, x0, y0, theta0, L, T): # L:wheel base
+
         self.x=x0
         self.y=y0
         self.theta=theta0
@@ -51,7 +46,7 @@ class UGV_model:
         
     def plot_duration(self):
         plt.scatter(self.x, self.y, color='r')   
-        plt.axis([-5, 100, -20, 20])
+        plt.axis([-5, 100, -100, 100])
 
         plt.pause(0.008)
 
@@ -70,16 +65,18 @@ class MPCController():
 
         self.Nx = 6
         self.Nu = 2
+        self.NC = 1
 
         self.Nc = 30
         self.Np = 60
 
         self.T = dt
 
-    def Solve(self, x, u_pre, ref_traj):
+    def Solve(self, x, u_pre, ref_traj, ugv_x, ugv_y):
 
+        ugv_position = np.array([ugv_x,ugv_y])  
         tree = KDTree(ref_traj[:, :2])
-        nearest_ref_info = tree.query(x[:2])
+        nearest_ref_info = tree.query(ugv_position)
         nearest_ref_x = ref_traj[nearest_ref_info[1]]
 
 
@@ -103,14 +100,14 @@ class MPCController():
             [-self.T,0]
         ])
 
-        c = np.array([
-            [0],
-            [self.T*((self.Car*self.lr-self.Caf*self.lf)/(self.m*nearest_ref_x[3])-nearest_ref_x[3])],
-            [0],
-            [-self.T*(self.Car*self.lr*self.lr+self.Caf*self.lf*self.lf)/(self.Iz*nearest_ref_x[3])],
-            [0],
-            [self.T]
-        ])
+        # c = np.array([
+        #     [0],
+        #     [self.T*((self.Car*self.lr-self.Caf*self.lf)/(self.m*nearest_ref_x[3])-nearest_ref_x[3])],
+        #     [0],
+        #     [-self.T*(self.Car*self.lr*self.lr+self.Caf*self.lf*self.lf)/(self.Iz*nearest_ref_x[3])],
+        #     [0],
+        #     [self.T]
+        # ])
 
         A = np.zeros([self.Nx + self.Nu, self.Nx + self.Nu])
         A[0 : self.Nx, 0 : self.Nx] = a
@@ -121,17 +118,26 @@ class MPCController():
         B[0 : self.Nx, :] = b
         B[self.Nx :, : ] = np.eye(self.Nu)
 
-        
+        # C = np.zeros([self.Nx + self.Nu, self.Nc])
+        # C[0 : self.Nx, :] = c
 
-        C = np.array([
-            [1, 0, 0, 0, 0, 0, 0, 0], 
-            [0, 1, 0 ,0 ,0, 0, 0, 0], 
-            [0, 0, 1, 0, 0, 0, 0, 0],
-            [0, 0, 0 ,1 ,0, 0, 0, 0],
-            [0, 0, 0 ,0 ,1, 0, 0, 0],
-            [0, 0, 0 ,0 ,0, 1, 0, 0],
+        # theta = np.zeros([self.Np * (self.Nx + self.Nu), self.Np * self.Nu])#控制量
+        # phi = np.zeros([self.Np * (self.Nx + self.Nu), self.Nu + self.Nx])#状态量
+
+        # for i in range(1, self.Np + 1):
+        #     phi[(self.Nx + self.Nu) * (i - 1) : (self.Nx + self.Nu) * i] = np.linalg.matrix_power(A, i)
+        #     for j in range(1, i+1):
+        #         theta[(self.Nx + self.Nu) * (i - 1) : (self.Nx + self.Nu) * i, self.Nu * (j-1) : self.Nu * j] = np.linalg.matrix_power(A, i - j) @ B
+
+        C=np.array([
+            [1,0,0,0,0,0,0,0],
+            [0,1,0,0,0,0,0,0],
+            [0,0,1,0,0,0,0,0],
+            [0,0,0,1,0,0,0,0],
+            [0,0,0,0,1,0,0,0],
+            [0,0,0,0,0,1,0,0]
         ])
-
+        
         theta = np.zeros([self.Np * self.Nx, self.Nc * self.Nu])
         phi = np.zeros([self.Np * self.Nx, self.Nu + self.Nx])
         tmp = C
@@ -149,34 +155,35 @@ class MPCController():
 
             tmp = np.dot(tmp, A)
 
+        Q = np.zeros([self.Nx * self.Np, self.Nx * self.Np])
+        for i in range(self.Np):
+            Q[self.Nx * i : self.Nx * (i + 1), self.Nx * i : self.Nx * (i + 1)] = np.diag([5, 0, 0, 0, 0, 0])
 
-        Q = np.eye(self.Nx * self.Np)
+        R = 1 * np.eye(self.Nu * self.Nc)
 
-        R = 5.0 * np.eye(self.Nu * self.Nc)
-
-        rho = 10
+        rho = 1
 
         H = np.zeros((self.Nu * self.Nc + 1, self.Nu * self.Nc + 1))
         H[0 : self.Nu * self.Nc, 0 : self.Nu * self.Nc] = np.dot(np.dot(theta.transpose(), Q), theta) + R
         H[-1 : -1] = rho
 
         kesi = np.zeros((self.Nx + self.Nu, 1))
-        diff_x = x
+        diff_x = x 
         diff_x = diff_x.reshape(-1, 1)
         kesi[: self.Nx, :] = diff_x
         diff_u = u_pre.reshape(-1, 1)
         kesi[self.Nx :, :] = diff_u
 
         F = np.zeros((1, self.Nu * self.Nc + 1))
-        F_1 = 5 * np.dot(np.dot(np.dot(phi, kesi).transpose(), Q), theta)
+        F_1 = 2 * np.dot(np.dot(np.dot(phi, kesi).transpose(), Q), theta)
         F[ 0,  0 : self.Nu * self.Nc] = F_1
 
         # constraints
-        umin = np.array([[-0.2], [-0.54]])
-        umax = np.array([[0.2], [0.332]])
+        umin = np.array([[-0.1], [-0.3]])
+        umax = np.array([[0.1], [0.3]])
 
-        delta_umin = np.array([[-0.05], [-0.0082]])
-        delta_umax = np.array([[0.05], [0.0082]])
+        delta_umin = np.array([[-0.05], [-0.082]])
+        delta_umax = np.array([[0.05], [0.082]])
 
         A_t = np.zeros((self.Nc, self.Nc))
         for row in range(self.Nc):
@@ -246,18 +253,18 @@ plt.plot(ref_traj[:,0], ref_traj[:,1], '-.b', linewidth=5.0)
 history_us = np.array([])
 history_delta_us = np.array([])
 
-ugv = UGV_model(x[0], x[1], x[2], x[3], x[4] ,x[5], location[0], location[1], location[2], L, dt)
+ugv = UGV_model(location[0], location[1], location[2], L, dt)
 controller = MPCController(L, dt)
 for k in range(sim_steps):
 
     if k == 1:
         time.sleep(20)
 
-    u_cur, delta_u_cur = controller.Solve(x, pre_u, ref_traj)
+    u_cur, delta_u_cur = controller.Solve(x, pre_u, ref_traj, ugv.x, ugv.y)
     abs_u = [v_d, 0.0] + u_cur
 
-    print(abs_u)
-    print(ugv.x, ugv.y, ugv.theta)
+    # print(abs_u)
+    # print(ugv.x, ugv.y, ugv.theta)
     print(x)
 
     ugv.update(abs_u[0], abs_u[1])
@@ -269,15 +276,16 @@ for k in range(sim_steps):
     else:
         history_delta_us = np.vstack((history_delta_us, u_cur))
 
+    ugv_position = np.array([ugv.x,ugv.y])  
     tree = KDTree(ref_traj[:, :2])
-    nearest_ref_info = tree.query(x[:2])
-    nearest_ref_x = ref_traj[nearest_ref_info[1]]    
+    nearest_ref_info = tree.query(ugv_position)
+    nearest_ref_x = ref_traj[nearest_ref_info[1]]
 
     x = np.array([
         (ugv.y-nearest_ref_x[1])*math.cos(ugv.theta)-(ugv.x-nearest_ref_x[0])*math.sin(ugv.theta),
         ugv.v*math.cos(ugv.theta)*math.sin(ugv.theta-nearest_ref_x[2]),
         ugv.theta-nearest_ref_x[2],
-        0.0,#ugv.ephi_rate怎么求?
+        0.0,#dot_phi-dot_phi_ref
         -((ugv.x-nearest_ref_x[0])*math.cos(nearest_ref_x[2])+(ugv.y-nearest_ref_x[1])*math.sin(nearest_ref_x[2])),
         nearest_ref_x[3]-ugv.v*math.cos(ugv.theta-nearest_ref_x[2])
         
