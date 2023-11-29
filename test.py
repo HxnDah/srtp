@@ -8,28 +8,49 @@ import time
 
 import sys
 
-v_d = 10.0
+v_d = 5.0
 dt = 0.1
-sim_steps = 100
+sim_steps = 200
 
+#直线轨迹
 def load_ref_traj():
     ref_traj = np.zeros((sim_steps, 5))
 
     for i in range(sim_steps):
-        ref_traj[i, 0] = 10 * i * dt
-        ref_traj[i, 1] = 50.0
+        ref_traj[i, 0] = 5 * i * dt
+        ref_traj[i, 1] = 5.0
         ref_traj[i, 2] = 0.0
         ref_traj[i, 3] = v_d
         ref_traj[i, 4] = 0.0
 
     return ref_traj
 
-class UGV_model:
-    def __init__(self, x0, y0, theta0, L, T): # L:wheel base
+#圆形轨迹
+# def load_ref_traj():
+#     ref_traj = np.zeros((sim_steps, 5))
 
+#     for i in range(sim_steps):
+#         ref_traj[i, 0] = 20.0 * math.cos(0.5 * i * dt)
+#         ref_traj[i, 1] = 20.0 * math.sin(0.5 * i * dt)
+#         ref_traj[i, 2] = math.pi/2
+#         ref_traj[i, 3] = v_d
+#         ref_traj[i, 4] = 0.05
+
+#     return ref_traj
+    
+
+class UGV_model:
+    def __init__(self, ey0, ey_rate0, ephi0, ephi_rate0, ex0, ev0, x0, y0, theta0, L, T): # L:wheel base
+        self.ey = ey0 
+        self.ey_rate = ey_rate0
+        self.ephi = ephi0
+        self.ephi_rate = ephi_rate0
+        self.ex = ex0
+        self.ev = ev0
         self.x=x0
         self.y=y0
         self.theta=theta0
+        self.v = v_d
         self.l = L  # wheel base
         self.dt = T  # decision time periodic
 
@@ -45,8 +66,10 @@ class UGV_model:
         self.theta += dtheta * self.dt
         
     def plot_duration(self):
-        plt.scatter(self.x, self.y, color='r')   
-        plt.axis([-5, 100, -100, 100])
+        # plt.scatter(self.x, self.y, color='r')   
+        plt.quiver(self.x, self.y, math.cos(self.theta), math.sin(self.theta), color='r', width=0.005, scale_units='xy', scale=1)
+        # plt.axis([-40, 40, -40, 40])#圆形
+        plt.axis([-5, 100, -10, 10])#直线
 
         plt.pause(0.008)
 
@@ -65,27 +88,20 @@ class MPCController():
 
         self.Nx = 6
         self.Nu = 2
-        self.NC = 1
 
-        self.Nc = 30
-        self.Np = 60
+        self.Nc = 4
+        self.Np = 20
 
         self.T = dt
 
-    def Solve(self, x, u_pre, ref_traj, ugv_x, ugv_y):
-
-        ugv_position = np.array([ugv_x,ugv_y])  
-        tree = KDTree(ref_traj[:, :2])
-        nearest_ref_info = tree.query(ugv_position)
-        nearest_ref_x = ref_traj[nearest_ref_info[1]]
-
+    def Solve(self, x, u_pre, ugv_v):
 
 
         a=np.array([
             [1,self.T,0,0,0,0],
-            [0,1-(self.Caf+self.Car)*self.T/(self.m*nearest_ref_x[3]),(self.Caf+self.Car)*self.T/self.m,(self.Car*self.lr-self.Caf*self.lf)*self.T/(self.m*nearest_ref_x[3]),0,0],
+            [0,1-(self.Caf+self.Car)*self.T/(self.m*ugv_v),(self.Caf+self.Car)*self.T/self.m,(self.Car*self.lr-self.Caf*self.lf)*self.T/(self.m*ugv_v),0,0],
             [0,0,1,self.T,0,0],
-            [0,(self.Car*self.lr-self.Caf*self.lf)*self.T/(self.Iz*nearest_ref_x[3]),(self.Car*self.lr-self.Caf*self.lf)*self.T/(self.Iz),1-(self.Car*self.lr*self.lr+self.Caf*self.lf*self.lf)*self.T/(self.Iz*self.m*nearest_ref_x[3]),0,0],
+            [0,(self.Car*self.lr-self.Caf*self.lf)*self.T/(self.Iz*ugv_v),(self.Car*self.lr-self.Caf*self.lf)*self.T/(self.Iz),1-(self.Car*self.lr*self.lr+self.Caf*self.lf*self.lf)*self.T/(self.Iz*self.m*ugv_v),0,0],
             [0,0,0,0,1,self.T],
             [0,0,0,0,0,1]
         ])
@@ -118,26 +134,17 @@ class MPCController():
         B[0 : self.Nx, :] = b
         B[self.Nx :, : ] = np.eye(self.Nu)
 
-        # C = np.zeros([self.Nx + self.Nu, self.Nc])
-        # C[0 : self.Nx, :] = c
-
-        # theta = np.zeros([self.Np * (self.Nx + self.Nu), self.Np * self.Nu])#控制量
-        # phi = np.zeros([self.Np * (self.Nx + self.Nu), self.Nu + self.Nx])#状态量
-
-        # for i in range(1, self.Np + 1):
-        #     phi[(self.Nx + self.Nu) * (i - 1) : (self.Nx + self.Nu) * i] = np.linalg.matrix_power(A, i)
-        #     for j in range(1, i+1):
-        #         theta[(self.Nx + self.Nu) * (i - 1) : (self.Nx + self.Nu) * i, self.Nu * (j-1) : self.Nu * j] = np.linalg.matrix_power(A, i - j) @ B
-
-        C=np.array([
-            [1,0,0,0,0,0,0,0],
-            [0,1,0,0,0,0,0,0],
-            [0,0,1,0,0,0,0,0],
-            [0,0,0,1,0,0,0,0],
-            [0,0,0,0,1,0,0,0],
-            [0,0,0,0,0,1,0,0]
-        ])
         
+
+        C = np.array([
+            [1, 0, 0, 0, 0, 0, 0, 0], 
+            [0, 1, 0 ,0 ,0, 0, 0, 0], 
+            [0, 0, 1, 0, 0, 0, 0, 0],
+            [0, 0, 0 ,1 ,0, 0, 0, 0],
+            [0, 0, 0 ,0 ,1, 0, 0, 0],
+            [0, 0, 0 ,0 ,0, 1, 0, 0],
+        ])
+
         theta = np.zeros([self.Np * self.Nx, self.Nc * self.Nu])
         phi = np.zeros([self.Np * self.Nx, self.Nu + self.Nx])
         tmp = C
@@ -155,35 +162,36 @@ class MPCController():
 
             tmp = np.dot(tmp, A)
 
+
         Q = np.zeros([self.Nx * self.Np, self.Nx * self.Np])
         for i in range(self.Np):
-            Q[self.Nx * i : self.Nx * (i + 1), self.Nx * i : self.Nx * (i + 1)] = np.diag([5, 0, 0, 0, 0, 0])
+            Q[self.Nx * i : self.Nx * (i + 1), self.Nx * i : self.Nx * (i + 1)] = np.diag([10, 1, 5, 1, 1, 1])
+        
+        R = 2.0 * np.eye(self.Nu * self.Nc)
 
-        R = 1 * np.eye(self.Nu * self.Nc)
-
-        rho = 1
+        rho = 10
 
         H = np.zeros((self.Nu * self.Nc + 1, self.Nu * self.Nc + 1))
         H[0 : self.Nu * self.Nc, 0 : self.Nu * self.Nc] = np.dot(np.dot(theta.transpose(), Q), theta) + R
         H[-1 : -1] = rho
 
         kesi = np.zeros((self.Nx + self.Nu, 1))
-        diff_x = x 
+        diff_x = x
         diff_x = diff_x.reshape(-1, 1)
         kesi[: self.Nx, :] = diff_x
         diff_u = u_pre.reshape(-1, 1)
         kesi[self.Nx :, :] = diff_u
 
         F = np.zeros((1, self.Nu * self.Nc + 1))
-        F_1 = 2 * np.dot(np.dot(np.dot(phi, kesi).transpose(), Q), theta)
+        F_1 = 5 * np.dot(np.dot(np.dot(phi, kesi).transpose(), Q), theta)
         F[ 0,  0 : self.Nu * self.Nc] = F_1
 
         # constraints
-        umin = np.array([[-0.1], [-0.3]])
-        umax = np.array([[0.1], [0.3]])
+        umin = np.array([[-0.2], [-0.3]])
+        umax = np.array([[0.2], [0.3]])
 
-        delta_umin = np.array([[-0.05], [-0.082]])
-        delta_umax = np.array([[0.05], [0.082]])
+        delta_umin = np.array([[-0.05], [-0.1]])
+        delta_umax = np.array([[0.05], [0.1]])
 
         A_t = np.zeros((self.Nc, self.Nc))
         for row in range(self.Nc):
@@ -240,32 +248,32 @@ class MPCController():
 
 #u_0 = [3.0, 0.0]
 
-location=np.array([0.0, 0.0, 1.0])#初始化位置
+# location=np.array([20.0, 0.0, math.pi/2])#初始化位置
+location=np.array([0.0, 0.0, 0.0])
 pre_u = np.array([0.0, 0.0])
 L = 2.6
 
 ref_traj = load_ref_traj()
 x = np.array([location[1]-ref_traj[0,1], 0.0, location[2]-ref_traj[0,2], 0.0, -ref_traj[0,0], 0.0])#初始化状态
 
-plt.figure(figsize=(18, 3))
+# plt.figure(figsize=(9, 9))
+plt.figure(figsize=(18,3))
 plt.plot(ref_traj[:,0], ref_traj[:,1], '-.b', linewidth=5.0)
 
 history_us = np.array([])
 history_delta_us = np.array([])
 
-ugv = UGV_model(location[0], location[1], location[2], L, dt)
+ugv = UGV_model(x[0], x[1], x[2], x[3], x[4] ,x[5], location[0], location[1], location[2], L, dt)
 controller = MPCController(L, dt)
 for k in range(sim_steps):
 
     if k == 1:
         time.sleep(20)
 
-    u_cur, delta_u_cur = controller.Solve(x, pre_u, ref_traj, ugv.x, ugv.y)
+    u_cur, delta_u_cur = controller.Solve(x, pre_u, ugv.v)
     abs_u = [v_d, 0.0] + u_cur
 
-    # print(abs_u)
-    # print(ugv.x, ugv.y, ugv.theta)
-    print(x)
+    
 
     ugv.update(abs_u[0], abs_u[1])
     ugv.plot_duration()
@@ -276,20 +284,24 @@ for k in range(sim_steps):
     else:
         history_delta_us = np.vstack((history_delta_us, u_cur))
 
-    ugv_position = np.array([ugv.x,ugv.y])  
     tree = KDTree(ref_traj[:, :2])
-    nearest_ref_info = tree.query(ugv_position)
-    nearest_ref_x = ref_traj[nearest_ref_info[1]]
+    nearest_ref_info = tree.query([ugv.x, ugv.y])
+    nearest_ref_x = ref_traj[nearest_ref_info[1]]    
 
     x = np.array([
         (ugv.y-nearest_ref_x[1])*math.cos(ugv.theta)-(ugv.x-nearest_ref_x[0])*math.sin(ugv.theta),
-        ugv.v*math.cos(ugv.theta)*math.sin(ugv.theta-nearest_ref_x[2]),
+        ugv.v*math.sin(ugv.theta-nearest_ref_x[2]),
         ugv.theta-nearest_ref_x[2],
-        0.0,#dot_phi-dot_phi_ref
+        0.0,#ugv.ephi_rate怎么求?
         -((ugv.x-nearest_ref_x[0])*math.cos(nearest_ref_x[2])+(ugv.y-nearest_ref_x[1])*math.sin(nearest_ref_x[2])),
         nearest_ref_x[3]-ugv.v*math.cos(ugv.theta-nearest_ref_x[2])
         
     ])
+
+    # print(abs_u)
+    print(ugv.x, ugv.y, ugv.theta)
+    print(x)
+    print(nearest_ref_x[0], nearest_ref_x[1])
 
     pre_u = u_cur
 
