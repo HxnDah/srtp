@@ -8,7 +8,7 @@ import time
 
 import sys
 
-v_d = 20.0
+v_d = 10.0
 dt = 0.1
 sim_steps =100
 def load_ref_traj():
@@ -190,7 +190,7 @@ class MPCController():
 
 
 #u_0 = [3.0, 0.0]
-x = np.array([0.0, 0.0, 0.5])#初始化状态
+x = np.array([0.0, 0.0, 0.0])#初始化状态
 pre_u = np.array([0.0, 0.0])
 L = 2.6
 

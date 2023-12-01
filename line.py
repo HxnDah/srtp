@@ -12,47 +12,31 @@ v_d = 5.0
 dt = 0.1
 sim_steps = 200
 
-# # 直线轨迹
-# def load_ref_traj():
-#     ref_traj = np.zeros((sim_steps, 5))
+#直线轨迹
+def load_ref_traj():
+    ref_traj = np.zeros((sim_steps, 5))
 
-#     for i in range(sim_steps):
-#         ref_traj[i, 0] = 5 * i * dt
-#         ref_traj[i, 1] = 5.0
-#         ref_traj[i, 2] = 0.0
-#         ref_traj[i, 3] = v_d
-#         ref_traj[i, 4] = 0.0
+    for i in range(sim_steps):
+        ref_traj[i, 0] = 5 * i * dt
+        ref_traj[i, 1] = 5.0
+        ref_traj[i, 2] = 0.0
+        ref_traj[i, 3] = v_d
+        ref_traj[i, 4] = 0.0
 
-#     return ref_traj
+    return ref_traj
 
-# # 圆形轨迹
+#圆形轨迹
 # def load_ref_traj():
 #     ref_traj = np.zeros((sim_steps, 5))
 
 #     for i in range(sim_steps):
 #         ref_traj[i, 0] = 20.0 * math.cos(0.5 * i * dt)
 #         ref_traj[i, 1] = 20.0 * math.sin(0.5 * i * dt)
-#         if ref_traj[i, 1]==0:
-#             ref_traj[i, 2] = math.pi/2    
-#         else:
-#             ref_traj[i, 2] = np.arctan(ref_traj[i, 0]/ref_traj[i, 1])
+#         ref_traj[i, 2] = math.pi/2
 #         ref_traj[i, 3] = v_d
-#         ref_traj[i, 4] = 0
+#         ref_traj[i, 4] = 0.05
 
 #     return ref_traj
-
-#正弦轨迹
-def load_ref_traj():
-    ref_traj = np.zeros((sim_steps, 5))
-
-    for i in range(sim_steps):
-        ref_traj[i, 0] = 5 * i * dt
-        ref_traj[i, 1] = 5 * math.sin(0.5 * i * dt)
-        ref_traj[i, 2] = np.arctan(0.5 * math.cos(0.5* i * dt))
-        ref_traj[i, 3] = v_d
-        ref_traj[i, 4] = 0.0
-
-    return ref_traj
     
 
 class UGV_model:
@@ -105,13 +89,8 @@ class MPCController():
         self.Nx = 6
         self.Nu = 2
 
-        # # 直线
-        # self.Nc = 4
-        # self.Np = 20
-
-        # 正弦
-        self.Nc = 1
-        self.Np = 5
+        self.Nc = 4
+        self.Np = 20
 
         self.T = dt
 
@@ -186,9 +165,7 @@ class MPCController():
 
         Q = np.zeros([self.Nx * self.Np, self.Nx * self.Np])
         for i in range(self.Np):
-            Q[self.Nx * i : self.Nx * (i + 1), self.Nx * i : self.Nx * (i + 1)] = np.diag([50, 1, 1, 1, 1, 1])#正弦
-            # Q[self.Nx * i : self.Nx * (i + 1), self.Nx * i : self.Nx * (i + 1)] = np.diag([10, 1, 5, 1, 1, 1])#直线
-            Q[self.Nx * i : self.Nx * (i + 1), self.Nx * i : self.Nx * (i + 1)] = np.diag([100, 1, 20, 1, 1, 1])#圆形
+            Q[self.Nx * i : self.Nx * (i + 1), self.Nx * i : self.Nx * (i + 1)] = np.diag([10, 1, 5, 1, 1, 1])
         
         R = 2.0 * np.eye(self.Nu * self.Nc)
 
@@ -210,11 +187,11 @@ class MPCController():
         F[ 0,  0 : self.Nu * self.Nc] = F_1
 
         # constraints
-        umin = np.array([[-0.2], [-0.8]])
-        umax = np.array([[0.2], [0.8]])
+        umin = np.array([[-0.2], [-0.3]])
+        umax = np.array([[0.2], [0.3]])
 
-        delta_umin = np.array([[-0.05], [-0.3]])
-        delta_umax = np.array([[0.05], [0.3]])
+        delta_umin = np.array([[-0.05], [-0.1]])
+        delta_umax = np.array([[0.05], [0.1]])
 
         A_t = np.zeros((self.Nc, self.Nc))
         for row in range(self.Nc):
@@ -272,15 +249,15 @@ class MPCController():
 #u_0 = [3.0, 0.0]
 
 # location=np.array([20.0, 0.0, math.pi/2])#初始化位置
-location=np.array([0.0, 5.0, 0.0])
+location=np.array([0.0, 0.0, 0.0])
 pre_u = np.array([0.0, 0.0])
 L = 2.6
 
 ref_traj = load_ref_traj()
 x = np.array([location[1]-ref_traj[0,1], 0.0, location[2]-ref_traj[0,2], 0.0, -ref_traj[0,0], 0.0])#初始化状态
 
-plt.figure(figsize=(6, 6))
-# plt.figure(figsize=(18,3))
+# plt.figure(figsize=(9, 9))
+plt.figure(figsize=(18,3))
 plt.plot(ref_traj[:,0], ref_traj[:,1], '-.b', linewidth=5.0)
 
 history_us = np.array([])
@@ -322,9 +299,9 @@ for k in range(sim_steps):
     ])
 
     # print(abs_u)
-    # print(ugv.x, ugv.y, ugv.theta)
-    # print(x)
-    print(nearest_ref_x[0], nearest_ref_x[1], nearest_ref_x[2])
+    print(ugv.x, ugv.y, ugv.theta)
+    print(x)
+    print(nearest_ref_x[0], nearest_ref_x[1])
 
     pre_u = u_cur
 
